@@ -22,10 +22,14 @@ data Lam =
   | Var String
   | Fix (Lam)
 
+  | Pair (Lam) (Lam)
+  | PairCase (Lam) (Lam) (Lam)
+
   | Zero
   | Succ
+  deriving (Eq, Show)
 
-type EqState v = (  ([(String, Types v)]), Int )
+type EqState v = (  ([(Lam, Types v)]), Int )
 
 -- printTypes (Func l r) = (printTypes l) ++ " -> " ++ (printTypes l)
 -- printTypes (TVar v) = v
@@ -40,14 +44,14 @@ type EqState v = (  ([(String, Types v)]), Int )
 makeTypeEquations :: Lam -> Int -> State (EqState String) (Either (TypeEq String) String)
 makeTypeEquations (Var x) q = do
   (con, _) <- get
-  case lookup x con of
+  case lookup (Var x) con of
     Just p -> return $ Left $ (TEq (TVar x, p))
     Nothing -> return $ Right $ "Undeclared variable" 
 
 makeTypeEquations (Abst s t) q = do
   (con, x) <- get
   let y = x + 1
-  put ((s, TVar (show x)):con, y)
+  put (((Var s), TVar (show x)):con, y)
   e <- makeTypeEquations t y
   case e of
     Left e' -> return $ Left $ Exists [(show x), (show y)] [(TEq (TVar (show q), (Func (TVar (show x)) (TVar (show y)) ))), e']
@@ -81,3 +85,27 @@ makeTypeEquations (Zero) q = do
 
 makeTypeEquations (Succ) q = do
   return $ Left $ TEq ((TVar (show q)), (Func (TVar "Nat") (TVar "Nat")))
+
+makeTypeEquations (Pair t s) q = do
+  (con, x) <- get
+  let l = x
+  let r = x + 1
+  put(con, x + 2)
+
+  e1 <- makeTypeEquations t l
+  (con', x') <- get
+  put (con', x')
+  e2 <- makeTypeEquations s r
+  case (e1, e2) of
+    (Left e1', Left e2') -> return $ Left $ Exists [(show l), (show r)] [(TEq (TVar (show q), (TTuple (TVar (show l)) (TVar (show r)) ))), e1', e2']
+    (_,_) -> return $ Right $ "Bad app"
+
+makeTypeEquations (PairCase t (Pair x y) s) q = do
+  (con, a) <- get
+  put (con, a+1)
+  e1 <- makeTypeEquations t a
+  (con', b) <- get
+  put ((x,(TVar (show b))):(y,(TVar (show (b+1)))):con', b+2)
+  e2 <- makeTypeEquations s (b+2)
+  case (e1, e2) of
+    (Left e1', Left e2') -> return $ Left $ Exists [(show b), (show (b+1)), (show a)] [(TEq (TVar (show q), (TTuple (TVar (show b)) (TVar (show (b+1))) ))), e1', e2']
