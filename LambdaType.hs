@@ -11,10 +11,12 @@ data Types v =
   | TVar String
   | TList (Types v)
   | TTuple (Types v) (Types v)
+  deriving (Eq, Show)
 
 data TypeEq a = 
     TEq (Types a, Types a) 
   | Exists [a] [TypeEq a]
+  deriving (Eq, Show)
 
 data Lam = 
     App (Lam) (Lam)
@@ -22,23 +24,25 @@ data Lam =
   | Var String
   | Fix (Lam)
 
+  | Unit
+  | UnitCase (Lam) (Lam) (Lam)
+
   | Pair (Lam) (Lam)
   | PairCase (Lam) (Lam) (Lam)
 
   | Zero
   | Succ
+
   deriving (Eq, Show)
+
+test =  ((Abst) "y" (App (Succ) (Var "y")))
 
 type EqState v = (  ([(Lam, Types v)]), Int )
 
--- printTypes (Func l r) = (printTypes l) ++ " -> " ++ (printTypes l)
--- printTypes (TVar v) = v
-
--- printTypeEq (TEq (l, r)) = (printTypeEq l) ++ " = " ++ (printTypes r)
--- printTypeEq (Exists e t) 
-
--- startState = ([], 0)
--- lambdaTypeEquations l = evalState (makeTypeEquations l 0) startState
+startState = ([], 0)
+lambdaTypeEquations l = case evalState (makeTypeEquations l 0) startState of
+  (Left e) -> putStrLn (show e)
+  (Right err) -> putStrLn $ "Error :" ++ err
 
 
 makeTypeEquations :: Lam -> Int -> State (EqState String) (Either (TypeEq String) String)
@@ -46,22 +50,23 @@ makeTypeEquations (Var x) q = do
   (con, _) <- get
   case lookup (Var x) con of
     Just p -> return $ Left $ (TEq (TVar x, p))
-    Nothing -> return $ Right $ "Undeclared variable" 
+    Nothing -> return $ Right $ "Undeclared variable: " ++ x 
 
 makeTypeEquations (Abst s t) q = do
-  (con, x) <- get
-  let y = x + 1
-  put (((Var s), TVar (show x)):con, y)
+  (con, n) <- get
+  let x = n + 1
+  let y = n + 2
+  put (((Var s), TVar (show x)):con, n + 3)
   e <- makeTypeEquations t y
   case e of
     Left e' -> return $ Left $ Exists [(show x), (show y)] [(TEq (TVar (show q), (Func (TVar (show x)) (TVar (show y)) ))), e']
     Right error -> return $ Right $ "Abstraction problem"
 
 makeTypeEquations (App f t) q = do
-  (con, x) <- get
-  let l = x
-  let r = x + 1
-  put(con, x + 2)
+  (con, n) <- get
+  let l = n + 1
+  let r = n + 2
+  put(con, n + 3)
 
   e1 <- makeTypeEquations f l
   (con', x') <- get
@@ -69,13 +74,14 @@ makeTypeEquations (App f t) q = do
   e2 <- makeTypeEquations t r
   case (e1, e2) of
     (Left e1', Left e2') -> return $ Left $ Exists [(show l), (show r)] [(TEq (TVar (show r), (Func (TVar (show l)) (TVar (show q)) ))), e1', e2']
-    (_,_) -> return $ Right $ "Bad app"
+    (Right e1', Left e2') -> return $ Right $ "Error in left hand side: " ++ e1'
+    (Left e1', Right e2') -> return $ Right $ "Error in right hand side: " ++ e2'
 
 makeTypeEquations (Fix t) q = do
   (con,z) <- get
-  put (con, z+1)
+  put (con, z+2)
 
-  e <- makeTypeEquations t z
+  e <- makeTypeEquations t (z + 1)
   case e of
     Left e' -> return $ Left $ Exists [(show z)] [(TEq ((TVar (show z), (Func (TVar (show q)) (TVar (show q))) )) ), e' ]
     Right err -> return $ Right $ err
@@ -83,14 +89,31 @@ makeTypeEquations (Fix t) q = do
 makeTypeEquations (Zero) q = do
   return $ Left $ TEq ((TVar (show q)), (TVar "Nat"))
 
+makeTypeEquations (Unit) q = do
+  return $ Left $ TEq ((TVar (show q)), (TVar "Unit"))
+
+makeTypeEquations (UnitCase t (Unit) s) q = do
+  (con, n) <- get
+  let z = n + 1
+  put(con, n + 2)
+  e1 <- makeTypeEquations t z
+  (con', x') <- get
+  put (con', x')
+  e2 <- makeTypeEquations s q
+  case (e1, e2) of
+    (Left e1', Left e2') -> return $ Left $ Exists [(show z)] [(TEq ((TVar (show z)), (TVar "Units"))), e1', e2']
+    (Right e1', Left e2') -> return $ Right $ "Error in left hand side: " ++ e1'
+    (Left e1', Right e2') -> return $ Right $ "Error in right hand side: " ++ e2'
+
+
 makeTypeEquations (Succ) q = do
   return $ Left $ TEq ((TVar (show q)), (Func (TVar "Nat") (TVar "Nat")))
 
 makeTypeEquations (Pair t s) q = do
-  (con, x) <- get
-  let l = x
-  let r = x + 1
-  put(con, x + 2)
+  (con, n) <- get
+  let l = n + 1
+  let r = n + 2
+  put(con, n + 3)
 
   e1 <- makeTypeEquations t l
   (con', x') <- get
