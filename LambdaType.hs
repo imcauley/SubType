@@ -6,10 +6,11 @@
 --------------------------------------------------
 import Control.Monad.State
 
-
 data Types v = 
     Func (Types v) (Types v) 
   | TVar String
+  | TList (Types v)
+  | TTuple (Types v) (Types v)
 
 data TypeEq a = 
     TEq (Types a, Types a) 
@@ -19,6 +20,10 @@ data Lam =
     App (Lam) (Lam)
   | Abst String (Lam)
   | Var String
+  | Fix (Lam)
+
+  | Zero
+  | Succ
 
 type EqState v = (  ([(String, Types v)]), Int )
 
@@ -61,24 +66,18 @@ makeTypeEquations (App f t) q = do
   case (e1, e2) of
     (Left e1', Left e2') -> return $ Left $ Exists [(show l), (show r)] [(TEq (TVar (show r), (Func (TVar (show l)) (TVar (show q)) ))), e1', e2']
     (_,_) -> return $ Right $ "Bad app"
-  -- return $ Right $ "Undeclared variable" 
 
-  -- Var x -> do
-  --     (con, _) <- get
-  --     case lookup x con of
-  --       Just p -> return $ Left $ (TEq (Type x) p)
-  --       Nothing -> return $ Right $ "Undeclared variable" 
+makeTypeEquations (Fix t) q = do
+  (con,z) <- get
+  put (con, z+1)
 
+  e <- makeTypeEquations t z
+  case e of
+    Left e' -> return $ Left $ Exists [(show z)] [(TEq ((TVar (show z), (Func (TVar (show q)) (TVar (show q))) )) ), e' ]
+    Right err -> return $ Right $ err
 
--- makeTypeEquations :: (Eq a) => (Lam a t) -> State (EqState a t) [TypeEq t]
--- makeTypeEquations (Var v_type value) = do
---   (types, counter) <- get
---   case getVarType (Var v_type value) types of
---     Just t -> return [(t,t)]
+makeTypeEquations (Zero) q = do
+  return $ Left $ TEq ((TVar (show q)), (TVar "Nat"))
 
--- getVarType :: (Eq a) => (Lam a t) -> [((Lam a t), (Type t))] -> Maybe (Type t)
--- getVarType (Var (AT at) _) _ = Just (AT at)
--- getVarType (Var None v1) (((Var _ v2), t):types)
---   | v1 == v2 = Just t
---   | otherwise = getVarType (Var None v1) types
--- getVarType _ [] = Nothing
+makeTypeEquations (Succ) q = do
+  return $ Left $ TEq ((TVar (show q)), (Func (TVar "Nat") (TVar "Nat")))
