@@ -6,6 +6,9 @@
 --------------------------------------------------
 import Control.Monad.State
 
+----------------------------------
+-- Data Section
+----------------------------------
 data Types v = 
     Func (Types v) (Types v) 
   | TVar String
@@ -35,13 +38,32 @@ data Lam =
 
   deriving (Eq, Show)
 
-test =  ((Abst) "y" (App (Succ) (Var "y")))
+test0 =  ((Abst) "x" (Var "x"))
+test1 =  ((Abst) "y" (App (Succ) (Var "y")))
+
+----------------------------------
+-- Printing Section
+----------------------------------
+
+stringType (TVar s) = s
+stringType (Func f t) = stringType f ++ "->" ++ stringType t
+stringType (TList t) = "L(" ++ stringType t ++ ")"
+stringType (TTuple l r) = "(" ++ (stringType l) ++ "," ++ (stringType r) ++ ")" 
+
+stringTypeEq (TEq (l, r)) = stringType l ++ "=" ++ stringType r
+stringTypeEq (Exists vs eqs) = "∃" ++ show vs ++ "[" ++ (concat (map ((++) ", ") (map stringTypeEq eqs))) ++ " ]"
+
+printTypeEq t = putStrLn (stringTypeEq t)
+
+----------------------------------
+-- Equation Creation Section
+----------------------------------
 
 type EqState v = (  ([(Lam, Types v)]), Int )
 
 startState = ([], 0)
 lambdaTypeEquations l = case evalState (makeTypeEquations l 0) startState of
-  (Left e) -> putStrLn (show e)
+  (Left e) -> printTypeEq e
   (Right err) -> putStrLn $ "Error :" ++ err
 
 
@@ -49,7 +71,7 @@ makeTypeEquations :: Lam -> Int -> State (EqState String) (Either (TypeEq String
 makeTypeEquations (Var x) q = do
   (con, _) <- get
   case lookup (Var x) con of
-    Just p -> return $ Left $ (TEq (TVar x, p))
+    Just p -> return $ Left $ (TEq (TVar (show q), p))
     Nothing -> return $ Right $ "Undeclared variable: " ++ x 
 
 makeTypeEquations (Abst s t) q = do
@@ -105,7 +127,6 @@ makeTypeEquations (UnitCase t (Unit) s) q = do
     (Right e1', Left e2') -> return $ Right $ "Error in left hand side: " ++ e1'
     (Left e1', Right e2') -> return $ Right $ "Error in right hand side: " ++ e2'
 
-
 makeTypeEquations (Succ) q = do
   return $ Left $ TEq ((TVar (show q)), (Func (TVar "Nat") (TVar "Nat")))
 
@@ -132,3 +153,18 @@ makeTypeEquations (PairCase t (Pair x y) s) q = do
   e2 <- makeTypeEquations s (b+2)
   case (e1, e2) of
     (Left e1', Left e2') -> return $ Left $ Exists [(show b), (show (b+1)), (show a)] [(TEq (TVar (show q), (TTuple (TVar (show b)) (TVar (show (b+1))) ))), e1', e2']
+
+
+----------------------------------
+-- Equation Solving Section
+----------------------------------
+
+getVaraiblesInEquation :: TypeEq a -> [String]
+getVaraiblesInEquation (TEq (_,n)) = getVariablesInTypes n
+getVaraiblesInEquation (Exists _ ms) = concat (map (getVaraiblesInEquation) ms)
+
+getVariablesInTypes :: Types a -> [String]
+getVariablesInTypes (TVar n) = [n]
+getVariablesInTypes (Func f t) = getVariablesInTypes f ++ getVariablesInTypes t
+getVariablesInTypes (TTuple l r) = getVariablesInTypes l ++ getVariablesInTypes r
+getVariablesInTypes (TList t) = getVariablesInTypes t 
