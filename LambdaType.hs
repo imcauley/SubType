@@ -1,9 +1,9 @@
---------------------------------------------------
+----------------------------------
 -- Isaac McAuley
 -- 30062463
 -- April 15, 2020
--- Lambda.hs
---------------------------------------------------
+-- LambdaType.hs
+----------------------------------
 import Control.Monad.State
 
 ----------------------------------
@@ -167,4 +167,22 @@ getVariablesInTypes :: Types a -> [String]
 getVariablesInTypes (TVar n) = [n]
 getVariablesInTypes (Func f t) = getVariablesInTypes f ++ getVariablesInTypes t
 getVariablesInTypes (TTuple l r) = getVariablesInTypes l ++ getVariablesInTypes r
-getVariablesInTypes (TList t) = getVariablesInTypes t 
+getVariablesInTypes (TList t) = getVariablesInTypes t
+
+checkEquations :: TypeEq String -> String -> Bool
+checkEquations eqs var = elem var (getVaraiblesInEquation eqs)
+
+replaceInEq :: TypeEq String -> TypeEq String -> TypeEq String
+replaceInEq (TEq (x,y)) r = (TEq (x, (replaceInType y r)))
+replaceInEq (Exists vars []) r = (Exists vars [])
+replaceInEq (Exists vars (x:xs)) r = (Exists vars ((replaceInEq x r):rest))
+  where (Exists vars rest) = replaceInEq (Exists vars xs) r
+
+
+replaceInType :: Types String -> TypeEq String -> Types String
+replaceInType (TVar v) (TEq ((TVar x),y))
+  | v == x = y
+  | otherwise = (TVar v)
+replaceInType (Func f t) r = (Func (replaceInType f r) (replaceInType t r))
+replaceInType (TTuple f t) r = (TTuple (replaceInType f r) (replaceInType t r))
+replaceInType (TList l) r = (TList (replaceInType l r))
