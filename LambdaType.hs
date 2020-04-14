@@ -232,20 +232,6 @@ removeTrivial ((TEq ((TVar x), (TVar y))):rest)
   | otherwise = (TEq ((TVar x), (TVar y))):(removeTrivial rest)
 removeTrivial (eq:rest) = eq:(removeTrivial rest)
 
--- replaceVars' [] = []
--- replaceVars' [a] = [a]
--- replaceVars' (x:xs) = replaceVar x xs 
-
--- replaceVar :: TypeEq String -> [TypeEq String] -> [TypeEq String]
--- replaceVar r [] = [r]
--- replaceVar (TEq ((TVar x),x_eq)) ((TEq (t,(TVar x'))):rest)
---   | x == x' = ((TEq (t,x_eq)):rest')
---   | otherwise = ((TEq (t,(TVar x'))):rest')
---     where rest' = replaceVar (TEq ((TVar x),x_eq)) rest
--- replaceVar (TEq (t,(TVar x'))) ((TEq ((TVar x),x_eq)):rest)
---   | x == x' = ((TEq (t,x_eq)):rest')
---   | otherwise = ((TEq ((TVar x),x_eq)):rest')
---     where rest' = replaceVar (TEq (t,(TVar x'))) rest
 
 replaceVars eqs = replaceVars' eqs (allTuples eqs)
 allTuples xs = [ (x,y) | x <- xs, y <- xs, x /= y ]
@@ -261,3 +247,17 @@ replaceVar (TEq ((TVar x),x_eq)) (TEq (t,(TVar x')))
   | x == x' = Just ((TEq ((TVar x),x_eq)), (TEq (t,(TVar x'))), (TEq (t,x_eq)))
   | otherwise = Nothing
 replaceVar _ _ = Nothing
+
+functionsHaveSameSize [] = True
+functionsHaveSameSize ((TEq (f,g)):rest) = functionsHaveSameSize' f g && functionsHaveSameSize rest
+
+functionsHaveSameSize' (Func _ (Func _ fs)) (Func _ (Func _ gs)) = functionsHaveSameSize' fs gs
+functionsHaveSameSize' (Func _ (Func _ fs)) (Func _ _) = False
+functionsHaveSameSize' (Func _ _) (Func _ (Func _ gs)) = False
+functionsHaveSameSize' (Func _ fs) (Func _ gs) = functionsHaveSameSize' fs gs
+functionsHaveSameSize' _ _ = True
+
+
+-- functions to add
+-- equations agree i.e. (no x = x + t)
+-- functions agree i.e. (t1=t2 t1=f(x1,x2..xn) t2=g(k1,k2..kn))
