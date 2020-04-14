@@ -219,6 +219,7 @@ unify eqs
       Nothing -> Nothing
   | otherwise = Just eqs
 
+
 canPerformTransformation :: [TypeEq String] -> Bool
 canPerformTransformation [] = False
 
@@ -231,7 +232,6 @@ removeTrivial ((TEq ((TVar x), (TVar y))):rest)
   | x == y = removeTrivial rest
   | otherwise = (TEq ((TVar x), (TVar y))):(removeTrivial rest)
 removeTrivial (eq:rest) = eq:(removeTrivial rest)
-
 
 replaceVars eqs = replaceVars' eqs (allTuples eqs)
 allTuples xs = [ (x,y) | x <- xs, y <- xs, x /= y ]
@@ -257,6 +257,13 @@ functionsHaveSameSize' (Func _ _) (Func _ (Func _ gs)) = False
 functionsHaveSameSize' (Func _ fs) (Func _ gs) = functionsHaveSameSize' fs gs
 functionsHaveSameSize' _ _ = True
 
+
+replaceFunc :: [TypeEq a] -> [TypeEq a]
+replaceFunc eqs = concat $ map replaceFunc' eqs
+
+
+replaceFunc' (TEq ((Func x1 x2), (Func k1 k2))) = [TEq (x1, k2), TEq (x2, k2)]
+replaceFunc' a = [a]
 
 -- functions to add
 -- equations agree i.e. (no x = x + t)
