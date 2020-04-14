@@ -42,6 +42,15 @@ test0 =  ((Abst) "x" (Var "x"))
 test1 =  ((Abst) "y" (App (Succ) (Var "y")))
 
 ----------------------------------
+-- Main Program
+----------------------------------
+
+getTypeForProgram l = case evalState (makeTypeEquations l 0) startState of
+  (Left e) -> (unify (flattenEquations e) [])
+  -- (Right err) -> putStrLn $ "Error :" ++ err
+
+
+----------------------------------
 -- Printing Section
 ----------------------------------
 
@@ -159,30 +168,42 @@ makeTypeEquations (PairCase t (Pair x y) s) q = do
 -- Equation Solving Section
 ----------------------------------
 
-getVaraiblesInEquation :: TypeEq a -> [String]
+getVaraiblesInEquation :: TypeEq String -> [String]
 getVaraiblesInEquation (TEq (_,n)) = getVariablesInTypes n
 getVaraiblesInEquation (Exists _ ms) = concat (map (getVaraiblesInEquation) ms)
 
-getVariablesInTypes :: Types a -> [String]
+getVariablesInTypes :: Types String -> [String]
 getVariablesInTypes (TVar n) = [n]
 getVariablesInTypes (Func f t) = getVariablesInTypes f ++ getVariablesInTypes t
 getVariablesInTypes (TTuple l r) = getVariablesInTypes l ++ getVariablesInTypes r
 getVariablesInTypes (TList t) = getVariablesInTypes t
 
-checkEquations :: TypeEq String -> String -> Bool
-checkEquations eqs var = elem var (getVaraiblesInEquation eqs)
+checkEquations :: TypeEq String -> Types String -> Bool
+checkEquations eqs (TVar var) = elem var (getVaraiblesInEquation eqs)
+
+flattenEquations :: TypeEq String -> [TypeEq String]
+flattenEquations (TEq x) = [(TEq x)]
+flattenEquations (Exists _ xs) = concat (map flattenEquations xs)
 
 replaceInEq :: TypeEq String -> TypeEq String -> TypeEq String
-replaceInEq (TEq (x,y)) r = (TEq (x, (replaceInType y r)))
-replaceInEq (Exists vars []) r = (Exists vars [])
-replaceInEq (Exists vars (x:xs)) r = (Exists vars ((replaceInEq x r):rest))
-  where (Exists vars rest) = replaceInEq (Exists vars xs) r
+replaceInEq r (TEq (x,y)) = (TEq (x, (replaceInType r y)))
+replaceInEq r (Exists vars []) = (Exists vars [])
+replaceInEq r (Exists vars (x:xs)) = (Exists vars ((replaceInEq r x):rest))
+  where (Exists vars rest) = replaceInEq r (Exists vars xs)
 
-
-replaceInType :: Types String -> TypeEq String -> Types String
-replaceInType (TVar v) (TEq ((TVar x),y))
+replaceInType :: TypeEq String -> Types String -> Types String
+replaceInType (TEq ((TVar x),y)) (TVar v)
   | v == x = y
   | otherwise = (TVar v)
-replaceInType (Func f t) r = (Func (replaceInType f r) (replaceInType t r))
-replaceInType (TTuple f t) r = (TTuple (replaceInType f r) (replaceInType t r))
-replaceInType (TList l) r = (TList (replaceInType l r))
+replaceInType r (Func f t) = (Func (replaceInType r f) (replaceInType r t))
+replaceInType r (TTuple f t) = (TTuple (replaceInType r f) (replaceInType r t))
+replaceInType r (TList l) = (TList (replaceInType r l))
+
+-- TODO Function Substitution
+
+replace_test = [TEq (TVar "2",TVar "1"),TEq (TVar "0",Func (TVar "1") (TVar "2"))]
+
+check :: TypeEq String -> TypeEq String -> Maybe (TypeEq String)
+check eq (TEq (x,y))
+  | checkEquations eq x = Nothing
+  | otherwise = Just (replaceInEq (TEq (x,y)) eq)
