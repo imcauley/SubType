@@ -5,6 +5,7 @@
 -- LambdaType.hs
 ----------------------------------
 import Control.Monad.State
+import Data.List
 
 ----------------------------------
 -- Data Section
@@ -45,8 +46,8 @@ test1 =  ((Abst) "y" (App (Succ) (Var "y")))
 -- Main Program
 ----------------------------------
 
-getTypeForProgram l = case evalState (makeTypeEquations l 0) startState of
-  (Left e) -> (unify (flattenEquations e) [])
+-- getTypeForProgram l = case evalState (makeTypeEquations l 0) startState of
+--   (Left e) -> (unify (flattenEquations e) [])
   -- (Right err) -> putStrLn $ "Error :" ++ err
 
 
@@ -202,8 +203,61 @@ replaceInType r (TList l) = (TList (replaceInType r l))
 -- TODO Function Substitution
 
 replace_test = [TEq (TVar "2",TVar "1"),TEq (TVar "0",Func (TVar "1") (TVar "2"))]
+replace_test0 = [TEq (TVar "1",TVar "1"), TEq (TVar "2",TVar "1"), TEq (TVar "1",TVar "2"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
+replace_test1 = [TEq (TVar "1",TVar "0"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
 
 check :: TypeEq String -> TypeEq String -> Maybe (TypeEq String)
 check eq (TEq (x,y))
   | checkEquations eq x = Nothing
   | otherwise = Just (replaceInEq (TEq (x,y)) eq)
+
+unify :: [TypeEq String] -> Maybe [TypeEq String]
+unify eqs
+  | canPerformTransformation eqs = 
+    case performTransformation eqs of
+      Just eqs' -> unify eqs'
+      Nothing -> Nothing
+  | otherwise = Just eqs
+
+canPerformTransformation :: [TypeEq String] -> Bool
+canPerformTransformation [] = False
+
+performTransformation :: [TypeEq String] -> Maybe [TypeEq String]
+performTransformation eqs = Just eqs
+
+removeTrivial :: [TypeEq String] -> [TypeEq String]
+removeTrivial [] = []
+removeTrivial ((TEq ((TVar x), (TVar y))):rest)
+  | x == y = removeTrivial rest
+  | otherwise = (TEq ((TVar x), (TVar y))):(removeTrivial rest)
+removeTrivial (eq:rest) = eq:(removeTrivial rest)
+
+-- replaceVars' [] = []
+-- replaceVars' [a] = [a]
+-- replaceVars' (x:xs) = replaceVar x xs 
+
+-- replaceVar :: TypeEq String -> [TypeEq String] -> [TypeEq String]
+-- replaceVar r [] = [r]
+-- replaceVar (TEq ((TVar x),x_eq)) ((TEq (t,(TVar x'))):rest)
+--   | x == x' = ((TEq (t,x_eq)):rest')
+--   | otherwise = ((TEq (t,(TVar x'))):rest')
+--     where rest' = replaceVar (TEq ((TVar x),x_eq)) rest
+-- replaceVar (TEq (t,(TVar x'))) ((TEq ((TVar x),x_eq)):rest)
+--   | x == x' = ((TEq (t,x_eq)):rest')
+--   | otherwise = ((TEq ((TVar x),x_eq)):rest')
+--     where rest' = replaceVar (TEq (t,(TVar x'))) rest
+
+replaceVars eqs = replaceVars' eqs (allTuples eqs)
+allTuples xs = [ (x,y) | x <- xs, y <- xs, x /= y ]
+
+replaceVars' :: Eq a => [TypeEq a] -> [(TypeEq a, TypeEq a)] -> [TypeEq a]
+replaceVars' eqs [] = eqs
+replaceVars' eqs ((n,m):rest) = case (replaceVar n m) of
+  Just (a,b,new) -> (delete b (delete a eqs)) ++ [new]
+  Nothing -> (replaceVars' eqs rest)
+
+replaceVar :: TypeEq a -> TypeEq a -> Maybe (TypeEq a, TypeEq a, TypeEq a)
+replaceVar (TEq ((TVar x),x_eq)) (TEq (t,(TVar x')))
+  | x == x' = Just ((TEq ((TVar x),x_eq)), (TEq (t,(TVar x'))), (TEq (t,x_eq)))
+  | otherwise = Nothing
+replaceVar _ _ = Nothing
