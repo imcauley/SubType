@@ -173,24 +173,31 @@ getVaraiblesInEquation :: TypeEq String -> [String]
 getVaraiblesInEquation (TEq (_,n)) = getVariablesInTypes n
 getVaraiblesInEquation (Exists _ ms) = concat (map (getVaraiblesInEquation) ms)
 
-getVariablesInTypes :: Types String -> [String]
-getVariablesInTypes (TVar n) = [n]
-getVariablesInTypes (Func f t) = getVariablesInTypes f ++ getVariablesInTypes t
-getVariablesInTypes (TTuple l r) = getVariablesInTypes l ++ getVariablesInTypes r
-getVariablesInTypes (TList t) = getVariablesInTypes t
-
-checkEquations :: TypeEq String -> Types String -> Bool
-checkEquations eqs (TVar var) = elem var (getVaraiblesInEquation eqs)
-
 flattenEquations :: TypeEq String -> [TypeEq String]
 flattenEquations (TEq x) = [(TEq x)]
 flattenEquations (Exists _ xs) = concat (map flattenEquations xs)
 
+-- TODO Function substitution'
+
+replace_test = [TEq (TVar "2",TVar "1"),TEq (TVar "0",Func (TVar "1") (TVar "2"))]
+replace_test0 = [TEq (TVar "1",TVar "1"), TEq (TVar "2",TVar "1"), TEq (TVar "1",TVar "2"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
+replace_test1 = [TEq (TVar "1",TVar "0"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
+
+
+
+substitution eqs = substitution' eqs (allTuples eqs)
+
+substitution' eqs [] = eqs
+substitution' eqs ((a,b):rest)
+  | replacement /= b = (delete b eqs) ++ [replacement]
+  | otherwise = (substitution' eqs rest)
+    where replacement = replaceInEq a b
+
 replaceInEq :: TypeEq String -> TypeEq String -> TypeEq String
 replaceInEq r (TEq (x,y)) = (TEq (x, (replaceInType r y)))
-replaceInEq r (Exists vars []) = (Exists vars [])
-replaceInEq r (Exists vars (x:xs)) = (Exists vars ((replaceInEq r x):rest))
-  where (Exists vars rest) = replaceInEq r (Exists vars xs)
+-- replaceInEq r (Exists vars []) = (Exists vars [])
+-- replaceInEq r (Exists vars (x:xs)) = (Exists vars ((replaceInEq r x):rest))
+  -- where (Exists vars rest) = replaceInEq r (Exists vars xs)
 
 replaceInType :: TypeEq String -> Types String -> Types String
 replaceInType (TEq ((TVar x),y)) (TVar v)
@@ -200,31 +207,7 @@ replaceInType r (Func f t) = (Func (replaceInType r f) (replaceInType r t))
 replaceInType r (TTuple f t) = (TTuple (replaceInType r f) (replaceInType r t))
 replaceInType r (TList l) = (TList (replaceInType r l))
 
--- TODO Function Substitution
 
-replace_test = [TEq (TVar "2",TVar "1"),TEq (TVar "0",Func (TVar "1") (TVar "2"))]
-replace_test0 = [TEq (TVar "1",TVar "1"), TEq (TVar "2",TVar "1"), TEq (TVar "1",TVar "2"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
-replace_test1 = [TEq (TVar "1",TVar "0"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
-
-check :: TypeEq String -> TypeEq String -> Maybe (TypeEq String)
-check eq (TEq (x,y))
-  | checkEquations eq x = Nothing
-  | otherwise = Just (replaceInEq (TEq (x,y)) eq)
-
-unify :: [TypeEq String] -> Maybe [TypeEq String]
-unify eqs
-  | canPerformTransformation eqs = 
-    case performTransformation eqs of
-      Just eqs' -> unify eqs'
-      Nothing -> Nothing
-  | otherwise = Just eqs
-
-
-canPerformTransformation :: [TypeEq String] -> Bool
-canPerformTransformation [] = False
-
-performTransformation :: [TypeEq String] -> Maybe [TypeEq String]
-performTransformation eqs = Just eqs
 
 removeTrivial :: [TypeEq String] -> [TypeEq String]
 removeTrivial [] = []
@@ -232,6 +215,9 @@ removeTrivial ((TEq ((TVar x), (TVar y))):rest)
   | x == y = removeTrivial rest
   | otherwise = (TEq ((TVar x), (TVar y))):(removeTrivial rest)
 removeTrivial (eq:rest) = eq:(removeTrivial rest)
+
+
+
 
 replaceVars eqs = replaceVars' eqs (allTuples eqs)
 allTuples xs = [ (x,y) | x <- xs, y <- xs, x /= y ]
@@ -248,23 +234,42 @@ replaceVar (TEq ((TVar x),x_eq)) (TEq (t,(TVar x')))
   | otherwise = Nothing
 replaceVar _ _ = Nothing
 
-functionsHaveSameSize [] = True
-functionsHaveSameSize ((TEq (f,g)):rest) = functionsHaveSameSize' f g && functionsHaveSameSize rest
 
-functionsHaveSameSize' (Func _ (Func _ fs)) (Func _ (Func _ gs)) = functionsHaveSameSize' fs gs
-functionsHaveSameSize' (Func _ (Func _ fs)) (Func _ _) = False
-functionsHaveSameSize' (Func _ _) (Func _ (Func _ gs)) = False
-functionsHaveSameSize' (Func _ fs) (Func _ gs) = functionsHaveSameSize' fs gs
-functionsHaveSameSize' _ _ = True
 
 
 replaceFunc :: [TypeEq a] -> [TypeEq a]
 replaceFunc eqs = concat $ map replaceFunc' eqs
 
-
 replaceFunc' (TEq ((Func x1 x2), (Func k1 k2))) = [TEq (x1, k2), TEq (x2, k2)]
 replaceFunc' a = [a]
 
+
+-- Inconsistency Checking
+--------------------------
+
+typesAgree :: [TypeEq String] -> Maybe String
+typesAgree eqs
+  | not $ equationsAgree eqs = Just "Inconsistent variable"
+  | not $ functionsAgree eqs = Just "Inconsistent function"
+  | otherwise = Nothing
+
+equationsAgree [] = True
+equationsAgree ((TEq ((TVar a), t)):rest) = elem a (getVariablesInTypes t) && equationsAgree rest
+
+getVariablesInTypes :: Types String -> [String]
+getVariablesInTypes (TVar n) = [n]
+getVariablesInTypes (Func f t) = getVariablesInTypes f ++ getVariablesInTypes t
+getVariablesInTypes (TTuple l r) = getVariablesInTypes l ++ getVariablesInTypes r
+getVariablesInTypes (TList t) = getVariablesInTypes t
+
+
+functionsAgree [] = True
+functionsAgree ((TEq (f,g)):rest) = functionsAgree' f g && functionsAgree rest
+
+functionsAgree' (Func _ (Func _ fs)) (Func _ (Func _ gs)) = functionsAgree' fs gs
+functionsAgree' (Func _ (Func _ fs)) (Func _ _) = False
+functionsAgree' (Func _ _) (Func _ (Func _ gs)) = False
+functionsAgree' (Func _ fs) (Func _ gs) = functionsAgree' fs gs
+functionsAgree' _ _ = True
 -- functions to add
 -- equations agree i.e. (no x = x + t)
--- functions agree i.e. (t1=t2 t1=f(x1,x2..xn) t2=g(k1,k2..kn))
