@@ -168,18 +168,6 @@ makeTypeEquations (PairCase t (Pair x y) s) q = do
     (Left e1', Left e2') -> return $ Left $ Exists [(show b), (show (b+1)), (show a)] [(TEq (TVar (show q), (TTuple (TVar (show b)) (TVar (show (b+1))) ))), e1', e2']
 
 
-----------------------------------
--- Equation Solving Section
-----------------------------------
-
-getVaraiblesInEquation :: TypeEq String -> [String]
-getVaraiblesInEquation (TEq (_,n)) = getVariablesInTypes n
-getVaraiblesInEquation (Exists _ ms) = concat (map (getVaraiblesInEquation) ms)
-
-flattenEquations :: TypeEq String -> [TypeEq String]
-flattenEquations (TEq x) = [(TEq x)]
-flattenEquations (Exists _ xs) = concat (map flattenEquations xs)
-
 
 replace_test = [TEq (TVar "1",TVar "2"),TEq (TVar "0",Func (TVar "1") (TVar "2"))]
 replace_test0 = [TEq (TVar "1",TVar "1"), TEq (TVar "2",TVar "1"), TEq (TVar "1",TVar "2"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
@@ -191,8 +179,45 @@ m1 = [TEq (TVar "2",Func (TVar "4") (TVar "5")),
       TEq (TVar "8",TVar "4")]
 
 n1 = TEq (TVar "0",Func (TVar "1") (TVar "8"))
--- solveEqs :: [TypeEq String] -> (Either String [TypeEq String])
 
+----------------------------------
+-- Equation Solving Section
+----------------------------------
+
+unify eqs = solveEqs (getMainFunc eqs') (notMain eqs')
+  where eqs' = removeTrivial eqs
+
+solveEqs main subs = 
+  case occurence (main:subs) of
+    True -> Left "Failed occurence check"
+    False -> case substitution main subs of
+      Just (main') -> solveEqs main' subs
+      Nothing -> Right main
+
+getMainFunc ((TEq (TVar "0", x)):_) = (TEq (TVar "0", x))
+getMainFunc (_:rest) = getMainFunc rest
+
+notMain [] = []
+notMain ((TEq (TVar "0", x)):rest) = notMain rest
+notMain (x:rest) = [x] ++ (notMain rest)
+
+removeTrivial :: [TypeEq String] -> [TypeEq String]
+removeTrivial [] = []
+removeTrivial ((TEq (TVar a, (TVar b))):rest) = removeTrivial (removeTrivial' (TEq (TVar a, (TVar b))) rest)
+removeTrivial (nontriv:rest) = [nontriv] ++ (removeTrivial rest)
+
+removeTrivial' triv [] = []
+removeTrivial' triv (eq:eqs) = case substitution eq [triv] of
+  (Just eq') -> [eq'] ++ (removeTrivial' triv eqs)
+  (Nothing) -> [eq] ++ (removeTrivial' triv eqs)
+
+getVaraiblesInEquation :: TypeEq String -> [String]
+getVaraiblesInEquation (TEq (_,n)) = getVariablesInTypes n
+getVaraiblesInEquation (Exists _ ms) = concat (map (getVaraiblesInEquation) ms)
+
+flattenEquations :: TypeEq String -> [TypeEq String]
+flattenEquations (TEq x) = [(TEq x)]
+flattenEquations (Exists _ xs) = concat (map flattenEquations xs)
 
 substitution :: TypeEq String -> [TypeEq String] -> Maybe (TypeEq String)
 substitution main [] = Nothing
@@ -221,27 +246,23 @@ replaceInType (Func f t) v t1 = (Func (replaceInType f v t1) (replaceInType t v 
 replaceInType (TTuple l r) v t1 = (TTuple (replaceInType l v t1)(replaceInType r v t1))
 replaceInType (TList l) v t1 = (TList (replaceInType l v t1))
 
+
+
+
+-- Inconsistency Checking
+--------------------------
+
+
+occurence [] = False
+occurence (s:ss) = occurence' s && (occurence ss)
+occurence' (TEq ((TVar a), t)) = elem a (getVariablesInTypes t)
+occurence' (_) = False
+
 getVariablesInTypes :: Types String -> [String]
 getVariablesInTypes (TVar n) = [n]
 getVariablesInTypes (Func f t) = getVariablesInTypes f ++ getVariablesInTypes t
 getVariablesInTypes (TTuple l r) = getVariablesInTypes l ++ getVariablesInTypes r
 getVariablesInTypes (TList t) = getVariablesInTypes t
-
-
-test_func = (Func (Func (TVar "x") (TTuple (TVar "y") (TVar "y"))) (TVar "z"))
-
--- functionToList (TTuple x1 x2) = 
--- functionToList (TVar x) = [(TVar x)]
--- replaceFunc (TEq ((TVar f), (Func x1 x2))) (TEq ((TVar g), (Func k1 k2))) 
---   | f == g = case functionsAgree (TEq ((TVar f), (Func x1 x2))) (TEq ((TVar g), (Func k1 k2))) of
---     False -> Left "Bad function"
---     True -> Right [(TEq (x1, k1)), (TEq (x2,k2))]
---   | otherwise = Right [(TEq ((TVar g), (Func k1 k2)))]
--- replaceFunc _ g = Right [g]
-
--- Inconsistency Checking
---------------------------
-
 -- typesAgree :: [TypeEq String] -> Maybe String
 -- typesAgree eqs
 --   -- | not $ equationsAgree eqs = Just "Inconsistent variable"
