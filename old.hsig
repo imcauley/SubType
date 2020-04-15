@@ -185,48 +185,128 @@ replace_test = [TEq (TVar "1",TVar "2"),TEq (TVar "0",Func (TVar "1") (TVar "2")
 replace_test0 = [TEq (TVar "1",TVar "1"), TEq (TVar "2",TVar "1"), TEq (TVar "1",TVar "2"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
 replace_test1 = [TEq (TVar "1",TVar "0"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
 
-m1 = [TEq (TVar "2",Func (TVar "4") (TVar "5")),
-      TEq (TVar "8",Func (TVar "7") (TVar "5")),
-      TEq (TVar "7",TVar "1"),
-      TEq (TVar "8",TVar "4")]
+replace_test2 = [TEq (TVar "0",Func (TVar "1") (TVar "2")),TEq (TVar "2",Func (TVar "4") (TVar "5")),TEq (TVar "8",Func (TVar "7") (TVar "5")),TEq (TVar "7",TVar "1"),TEq (TVar "8",TVar "4")]
 
-n1 = TEq (TVar "0",Func (TVar "1") (TVar "8"))
 -- solveEqs :: [TypeEq String] -> (Either String [TypeEq String])
+solveEqs eqs =
+  case (subList eqs []) of
+    Left err -> Left err
+    Right new -> solveEquation (getMainFunc eqs) (notMain eqs)
+    -- Right new -> substitutionInSingle (getMainFunc new) (notMain new)
+
+solveEquation main subs =
+  case substitutionInSingle main subs of
+    Left err -> Left err
+    Right main' | main' /= main -> solveEquation main' subs
+    Right main' | main' == main -> Right main
+
+getMainFunc ((TEq (TVar "0", x)):_) = (TEq (TVar "0", x))
+getMainFunc (_:rest) = getMainFunc rest
+
+notMain [] = []
+notMain ((TEq (TVar "0", x)):rest) = notMain rest
+notMain (x:rest) = [x] ++ (notMain rest)
+
+subList :: [TypeEq String] -> [TypeEq String] -> (Either String [TypeEq String])
+subList [] subs = Right subs
+-- subList [eq] subs = Right $ [eq] ++ subs
+subList (eq:eqs) subs =
+  case substitution eq subs of 
+    Left err -> Left err
+    Right subbed -> case subFunc eq subs of
+      Left err -> Left err
+      Right func_subbed -> case subList eqs (func_subbed) of
+        Left err -> Left err
+        Right rest -> Right $ rest ++ [eq]
 
 
-substitution :: TypeEq String -> [TypeEq String] -> Maybe (TypeEq String)
-substitution main [] = Nothing
-substitution (TEq (m,t)) (s:subs) = case varToSub (TEq (m,t)) s of
-  Just (v,t1) -> Just (TEq (m, (replaceInType t v t1)))
-  Nothing -> substitution (TEq (m,t)) subs
 
-varToSub :: TypeEq String -> TypeEq String -> Maybe (String, (Types String))
-varToSub (TEq (_, t)) (TEq (TVar a, (TVar b))) 
-  | elem a (getVariablesInTypes t) = Just (a,(TVar b))
-  | elem b (getVariablesInTypes t) = Just (b,(TVar a))
+occurence a (TEq (_, t)) = elem a (getVariablesInTypes t)
+
+
+substitution :: TypeEq String -> [TypeEq String] -> (Either String [TypeEq String])
+substitution _ [] = Right []
+substitution rep (s:subs)
+  | occurence (replaceInEq rep s) = Left "Occurence error"
+  | otherwise = case substitution rep subs of 
+    Left err -> Left err
+    Right rest -> Right $ [(replaceInEq rep s)] ++ rest
+
+substitutionInSingle :: TypeEq String -> [TypeEq String] -> (Either String (TypeEq String))
+substitutionInSingle rep [] = Right rep
+substitutionInSingle rep (s:subs) = Right rep
+  | occurence (replaceInEq s rep) = Left "Occurence error"
+  | otherwise = case substitutionInSingle rep subs of 
+    Left err -> Left err
+    Right rest -> Right $ (replaceInEq s rep)
+
+--             original eq      replacement
+--             t1 = t2          t2 = X -> Y
+--          => t1 = X -> Y
+replaceInEq :: TypeEq String -> TypeEq String -> Maybe (TypeEq String)
+replaceInEq (TEq (x,y)) (TEq (x',y'))
+  -- | y == x' = Just (TEq (x, replaceInType ))
+  -- | y == y' = 
   | otherwise = Nothing
-varToSub (TEq (_, t)) (TEq (TVar a, t1)) 
-  | elem a (getVariablesInTypes t) = Just (a,t1)
-  | otherwise = Nothing
-varToSub (TEq (_, t)) (TEq (t1, TVar a))
-  | elem a (getVariablesInTypes t) = Just (a,t1)
-  | otherwise = Nothing
-varToSub _ _ = Nothing
+ 
+-- replaceInEq r (TEq (x,y)) = (TEq (x, (replaceInType r y)))
 
-replaceInType :: Types String -> String -> Types String -> Types String
-replaceInType (TVar a) v t1
-  | a == v = t1
-  | otherwise = (TVar a)
-replaceInType (Func f t) v t1 = (Func (replaceInType f v t1) (replaceInType t v t1))
-replaceInType (TTuple l r) v t1 = (TTuple (replaceInType l v t1)(replaceInType r v t1))
-replaceInType (TList l) v t1 = (TList (replaceInType l v t1))
+replaceInType :: TypeEq String -> Types String -> Types String
+replaceInType (TEq ((TVar x),y)) (TVar v)
+  | v == x = y
+  | otherwise = (TVar v)
+replaceInType r (Func f t) = (Func (replaceInType r f) (replaceInType r t))
+replaceInType r (TTuple f t) = (TTuple (replaceInType r f) (replaceInType r t))
+replaceInType r (TList l) = (TList (replaceInType r l))
 
-getVariablesInTypes :: Types String -> [String]
-getVariablesInTypes (TVar n) = [n]
-getVariablesInTypes (Func f t) = getVariablesInTypes f ++ getVariablesInTypes t
-getVariablesInTypes (TTuple l r) = getVariablesInTypes l ++ getVariablesInTypes r
-getVariablesInTypes (TList t) = getVariablesInTypes t
+isTrivial (TEq ((TVar x), (TVar y)))
+  | x == y = True 
+  | otherwise = False
+isTrivial _ = False 
 
+-- removeTrivial :: [TypeEq String] -> [TypeEq String]
+-- removeTrivial [] = []
+-- removeTrivial ((TEq ((TVar x), (TVar y))):rest)
+--   | x == y = removeTrivial rest
+--   | otherwise = (TEq ((TVar x), (TVar y))):(removeTrivial rest)
+-- removeTrivial (eq:rest) = eq:(removeTrivial rest)
+
+
+
+
+-- replaceVars eqs = replaceVars' eqs (allTuples eqs)
+-- allTuples xs = [ (x,y) | x <- xs, y <- xs, x /= y ]
+
+-- replaceVars' :: Eq a => [TypeEq a] -> [(TypeEq a, TypeEq a)] -> [TypeEq a]
+-- replaceVars' eqs [] = eqs
+-- replaceVars' eqs ((n,m):rest) = case (replaceVar n m) of
+--   Just (a,b,new) -> (delete b (delete a eqs)) ++ [new]
+--   Nothing -> (replaceVars' eqs rest)
+
+-- replaceVar :: TypeEq a -> TypeEq a -> Maybe (TypeEq a, TypeEq a, TypeEq a)
+-- replaceVar (TEq ((TVar x),x_eq)) (TEq (t,(TVar x')))
+--   | x == x' = Just ((TEq ((TVar x),x_eq)), (TEq (t,(TVar x'))), (TEq (t,x_eq)))
+--   | otherwise = Nothing
+-- replaceVar _ _ = Nothing
+
+
+
+
+-- replaceFunc :: [TypeEq a] -> [TypeEq a]
+-- replaceFunc eqs = concat $ map replaceFunc' eqs
+
+-- rplaceFun eq [] = []
+-- replaceFunc 
+
+-- breakFuncs (TEq ((TVar f), (Func x1 x2))) (TEq ((TVar g), (Func k1 k2)))
+--   | f == g = breakFuncs' (Func x1 x2) (Func k1 k2)
+--   | otherwise = Right [(TEq ((TVar g), (Func k1 k2)))]
+-- breakFuncs _ g = Right [g]
+
+-- breakFuncs' (Func x1 x2) (Func k1 k2) = 
+--   case functionsAgree (Func x1 x2) (Func k1 k2) of
+--     True -> Left "Functions don't agree"
+    -- Right -> 
 
 test_func = (Func (Func (TVar "x") (TTuple (TVar "y") (TVar "y"))) (TVar "z"))
 
@@ -250,6 +330,12 @@ test_func = (Func (Func (TVar "x") (TTuple (TVar "y") (TVar "y"))) (TVar "z"))
 
 -- equationsAgree [] = True
 -- equationsAgree ((TEq ((TVar a), t)):rest) =  && equationsAgree rest
+
+getVariablesInTypes :: Types String -> [String]
+getVariablesInTypes (TVar n) = [n]
+getVariablesInTypes (Func f t) = getVariablesInTypes f ++ getVariablesInTypes t
+getVariablesInTypes (TTuple l r) = getVariablesInTypes l ++ getVariablesInTypes r
+getVariablesInTypes (TList t) = getVariablesInTypes t
 
 
 -- functionsAgree [] = True
