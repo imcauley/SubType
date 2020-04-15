@@ -46,8 +46,8 @@ test1 =  ((Abst) "y" (App (Succ) (Var "y")))
 -- Main Program
 ----------------------------------
 
--- getTypeForProgram l = case evalState (makeTypeEquations l 0) startState of
---   (Left e) -> (unify (flattenEquations e) [])
+getTypeForProgram l = case evalState (makeTypeEquations l 0) startState of
+  (Left e) -> (unify (flattenEquations e))
   -- (Right err) -> putStrLn $ "Error :" ++ err
 
 
@@ -177,13 +177,26 @@ flattenEquations :: TypeEq String -> [TypeEq String]
 flattenEquations (TEq x) = [(TEq x)]
 flattenEquations (Exists _ xs) = concat (map flattenEquations xs)
 
--- TODO Function substitution'
 
 replace_test = [TEq (TVar "2",TVar "1"),TEq (TVar "0",Func (TVar "1") (TVar "2"))]
 replace_test0 = [TEq (TVar "1",TVar "1"), TEq (TVar "2",TVar "1"), TEq (TVar "1",TVar "2"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
 replace_test1 = [TEq (TVar "1",TVar "0"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
 
 
+unify eqs =
+  let eqs' = iterateEqs eqs in
+  case typesAgree eqs of
+    Just err -> Left err
+    Nothing | eqs' /= eqs -> unify eqs'
+    Nothing -> Right eqs'
+
+iterateEqs :: [TypeEq String] -> [TypeEq String]
+iterateEqs eqs
+  | substitution eqs /= eqs = substitution eqs
+  | removeTrivial eqs /= eqs = removeTrivial eqs
+  | replaceVars eqs /= eqs = replaceVars eqs
+  | replaceFunc eqs /= eqs = replaceFunc eqs
+  | otherwise = eqs
 
 substitution eqs = substitution' eqs (allTuples eqs)
 
@@ -249,7 +262,7 @@ replaceFunc' a = [a]
 
 typesAgree :: [TypeEq String] -> Maybe String
 typesAgree eqs
-  | not $ equationsAgree eqs = Just "Inconsistent variable"
+  -- | not $ equationsAgree eqs = Just "Inconsistent variable"
   | not $ functionsAgree eqs = Just "Inconsistent function"
   | otherwise = Nothing
 
@@ -271,5 +284,3 @@ functionsAgree' (Func _ (Func _ fs)) (Func _ _) = False
 functionsAgree' (Func _ _) (Func _ (Func _ gs)) = False
 functionsAgree' (Func _ fs) (Func _ gs) = functionsAgree' fs gs
 functionsAgree' _ _ = True
--- functions to add
--- equations agree i.e. (no x = x + t)
