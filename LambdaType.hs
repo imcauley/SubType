@@ -48,10 +48,10 @@ test2 = ((Abst) "x" ((Abst) "y" (App (Var "x") (Var "y"))))
 ----------------------------------
 
 getTypeForProgram l = case evalState (makeTypeEquations l 0) startState of
-  (Left e) -> e --case (solveEqs (flattenEquations e)) of
-    -- (Left err) ->  Left $ putStrLn $ "Error :" ++ err
-    -- (Right solve) -> solve
-  -- (Right err) -> putStrLn $ "Error :" ++ err
+  (Left e) -> case (solveEqs (flattenEquations e)) of
+    (Left err) ->  putStrLn $ "Error :" ++ err
+    (Right solved) -> printTypeEq solved
+  (Right err) -> putStrLn $ "Error :" ++ err
 
 
 ----------------------------------
@@ -173,26 +173,29 @@ replace_test = [TEq (TVar "1",TVar "2"),TEq (TVar "0",Func (TVar "1") (TVar "2")
 replace_test0 = [TEq (TVar "1",TVar "1"), TEq (TVar "2",TVar "1"), TEq (TVar "1",TVar "2"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
 replace_test1 = [TEq (TVar "1",TVar "0"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
 
-m1 = [TEq (TVar "2",Func (TVar "4") (TVar "5")),
+m1 =  [(TEq (TVar "0",Func (TVar "1") (Func (TVar "7") (TVar "5")))),
+      TEq (TVar "2",Func (TVar "4") (TVar "5")),
       TEq (TVar "8",Func (TVar "7") (TVar "5")),
       TEq (TVar "7",TVar "1"),
       TEq (TVar "8",TVar "4")]
 
-n1 = TEq (TVar "0",Func (TVar "1") (TVar "8"))
 
 ----------------------------------
 -- Equation Solving Section
 ----------------------------------
 
-unify eqs = solveEqs (getMainFunc eqs') (notMain eqs')
-  where eqs' = removeTrivial eqs
 
-solveEqs main subs = 
-  case occurence (main:subs) of
-    True -> Left "Failed occurence check"
-    False -> case substitution main subs of
-      Just (main') -> solveEqs main' subs
+getMainAndSubs eqs = ((getMainFunc eqs'), (notMain eqs'))
+  where eqs' = removeTrivial (splitFunctions (removeTrivial eqs))
+
+solveEqs eqs
+  | occurence (eqs) =  Left "Failed occurence check"
+  | (not $ functionsAgree (eqs)) = Left "Functions don't agree"
+  | otherwise = case substitution main subs of
+      Just (main') -> solveEqs (main':subs)
       Nothing -> Right main
+  where (main,subs) = getMainAndSubs eqs
+
 
 getMainFunc ((TEq (TVar "0", x)):_) = (TEq (TVar "0", x))
 getMainFunc (_:rest) = getMainFunc rest
@@ -201,15 +204,25 @@ notMain [] = []
 notMain ((TEq (TVar "0", x)):rest) = notMain rest
 notMain (x:rest) = [x] ++ (notMain rest)
 
-removeTrivial :: [TypeEq String] -> [TypeEq String]
-removeTrivial [] = []
-removeTrivial ((TEq (TVar a, (TVar b))):rest) = removeTrivial (removeTrivial' (TEq (TVar a, (TVar b))) rest)
-removeTrivial (nontriv:rest) = [nontriv] ++ (removeTrivial rest)
+allPairs eqs = [(e, delete e eqs) | e <- eqs]
 
-removeTrivial' triv [] = []
-removeTrivial' triv (eq:eqs) = case substitution eq [triv] of
-  (Just eq') -> [eq'] ++ (removeTrivial' triv eqs)
-  (Nothing) -> [eq] ++ (removeTrivial' triv eqs)
+removeTrivial :: [TypeEq String] -> [TypeEq String]
+removeTrivial eqs = removeTrivial' eqs (findTrivial eqs)
+
+removeTrivial' eqs [] = eqs
+removeTrivial' eqs (t:ts) = removeTrivial' (removeTriv eqs t) ts
+
+removeTriv [] _ = []
+removeTriv (eq:rest) t
+  | eq == t = removeTriv rest t
+  | otherwise = case substitution eq [t] of
+    (Just eq') -> [eq'] ++ (removeTriv rest t)
+    Nothing -> [eq] ++ (removeTriv rest t)
+
+
+findTrivial [] = []
+findTrivial ((TEq (TVar a, (TVar b))):rest) = (TEq (TVar a, (TVar b))):(findTrivial rest)
+findTrivial (_:rest) = findTrivial rest
 
 getVaraiblesInEquation :: TypeEq String -> [String]
 getVaraiblesInEquation (TEq (_,n)) = getVariablesInTypes n
@@ -218,6 +231,9 @@ getVaraiblesInEquation (Exists _ ms) = concat (map (getVaraiblesInEquation) ms)
 flattenEquations :: TypeEq String -> [TypeEq String]
 flattenEquations (TEq x) = [(TEq x)]
 flattenEquations (Exists _ xs) = concat (map flattenEquations xs)
+
+
+
 
 substitution :: TypeEq String -> [TypeEq String] -> Maybe (TypeEq String)
 substitution main [] = Nothing
@@ -251,10 +267,8 @@ replaceInType (TList l) v t1 = (TList (replaceInType l v t1))
 
 -- Inconsistency Checking
 --------------------------
-
-
 occurence [] = False
-occurence (s:ss) = occurence' s && (occurence ss)
+occurence (s:ss) = occurence' s || (occurence ss)
 occurence' (TEq ((TVar a), t)) = elem a (getVariablesInTypes t)
 occurence' (_) = False
 
@@ -263,36 +277,39 @@ getVariablesInTypes (TVar n) = [n]
 getVariablesInTypes (Func f t) = getVariablesInTypes f ++ getVariablesInTypes t
 getVariablesInTypes (TTuple l r) = getVariablesInTypes l ++ getVariablesInTypes r
 getVariablesInTypes (TList t) = getVariablesInTypes t
--- typesAgree :: [TypeEq String] -> Maybe String
--- typesAgree eqs
---   -- | not $ equationsAgree eqs = Just "Inconsistent variable"
---   | not $ functionsAgree eqs = Just "Inconsistent function"
---   | otherwise = Nothing
-
--- equationsAgree [] = True
--- equationsAgree ((TEq ((TVar a), t)):rest) =  && equationsAgree rest
 
 
--- functionsAgree [] = True
--- functionsAgree ((TEq (f,g)):rest) = functionsAgree f g && functionsAgree rest
 
-subFunc :: (TypeEq v) -> [TypeEq v] -> (Either String [TypeEq v])
-subFunc (TEq (x,(Func a b))) ((TEq (y,(Func d c))):subs)
-  | x == y = functionsAgree (Func a b) (Func d c)
-  | otherwise = case subFunc (TEq (x,(Func a b))) subs of
-    (Right rest) -> Right $ [(TEq (y,(Func d c)))] ++ rest
-    (Left err) -> Left err
-subFunc _ [] = Right []
-subFunc _ subs = Right subs
+functionsAgree :: [TypeEq v] -> Bool
+functionsAgree [] = True
+functionsAgree (eq:eqs) = and (map (functionsAgree' eq) eqs) && (functionsAgree eqs)
 
+functionsAgree' (TEq ((TVar a), f)) (TEq ((TVar b), g))
+  | a == b = functionTypeAgree f g
+  | otherwise = True
 
-functionsAgree :: (Types v) -> (Types v) -> (Either String [TypeEq v])
-functionsAgree (Func x1 x2) (Func k1 k2) = do
-  case (functionsAgree x1 k1, functionsAgree x2 k2) of
-    (Right p1', Right p2') -> Right $ p1' ++ p2'
-    (_,_) -> Left "Functions don't agree"
-functionsAgree (Func _ _) (TVar _) = Left "Bad function"
-functionsAgree (TVar _) (Func _ _) = Left "Bad function"
-functionsAgree x y = Right [(TEq (x,y))]
+functionTypeAgree (Func f t) (Func g r) =
+   (functionTypeAgree f g) && (functionTypeAgree t r)
+functionTypeAgree (Func f t) n = False
+functionTypeAgree n (Func f t) = False
+functionTypeAgree _ _ = True
 
 
+splitFunctions :: [TypeEq v] -> [TypeEq v]
+splitFunctions [] = []
+splitFunctions (eq:eqs) = case splitFunctions' eq eqs of
+  (Just new_list) -> splitFunctions new_list
+  (Nothing) -> [eq] ++ (splitFunctions eqs)
+
+splitFunctions' _ [] = Nothing -- No changes
+splitFunctions' (TEq (a, (Func n m) )) ((TEq (b, (Func u v) )):rest)
+  | a == b = Just ((splitTypeFunctions (Func n m) (Func u v) ) ++ rest)
+  | otherwise = Nothing
+splitFunctions' t1 (t2:rest) = case splitFunctions' t1 rest of
+  (Just new_list) -> Just ([t2] ++ new_list)
+  Nothing -> Nothing
+
+splitTypeFunctions :: (Types v) -> (Types v) -> [TypeEq v]
+splitTypeFunctions (Func a b) (Func c d) =
+  (splitTypeFunctions a c) ++ (splitTypeFunctions b d)
+splitTypeFunctions v t = [TEq (v,t)]
