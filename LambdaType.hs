@@ -228,9 +228,15 @@ makeTypeEquations (ListCase t (App Cons v) t0 t1) q = do
         (TEq (TVar (show q), TVar (show y1))),
         (TEq (TVar (show q), TVar (show y2))),
         e1', e2', e3']
+
 ----------------------------------
 -- Equation Solving Section
 ----------------------------------
+
+-- Basic Logic:
+-- while(eqs can be changed):
+--   if eqs are consistent:
+--     perform a transformation on eqs
 
 solveEqs eqs =
   case eqChecks eqs of
@@ -255,6 +261,19 @@ getMainFunc (_:rest) = getMainFunc rest
 notMain [] = []
 notMain ((TEq (TVar "0", x)):rest) = notMain rest
 notMain (x:rest) = [x] ++ (notMain rest)
+
+flattenEquations :: TypeEq String -> [TypeEq String]
+flattenEquations (TEq x) = [(TEq x)]
+flattenEquations (Exists _ xs) = concat (map flattenEquations xs)
+
+
+-- Trivial Substitution Section
+-- Where trivial equations are a var equal to a var
+-- This is different from regular substitution because trivial equations need to be removed
+-- (If they aren't removed they will cause an infinite loop)
+--    X = Y -> Z
+--    Z = Q
+-- => X = Y -> Q
 
 
 removeTrivial :: [TypeEq String] -> [TypeEq String]
@@ -283,12 +302,38 @@ getVaraiblesInEquation :: TypeEq String -> [String]
 getVaraiblesInEquation (TEq (_,n)) = getVariablesInTypes n
 getVaraiblesInEquation (Exists _ ms) = concat (map (getVaraiblesInEquation) ms)
 
-flattenEquations :: TypeEq String -> [TypeEq String]
-flattenEquations (TEq x) = [(TEq x)]
-flattenEquations (Exists _ xs) = concat (map flattenEquations xs)
+
+-- Function Equality Section
+-- Combines equations of functions
+--    X = Y -> Z
+--    X = Q -> N
+-- => Y = Q, Z = N
+
+splitFunctions :: [TypeEq v] -> [TypeEq v]
+splitFunctions [] = []
+splitFunctions (eq:eqs) = case splitFunctions' eq eqs of
+  (Just new_list) -> splitFunctions new_list
+  (Nothing) -> [eq] ++ (splitFunctions eqs)
+
+splitFunctions' _ [] = Nothing -- No changes
+splitFunctions' (TEq (a, (Func n m) )) ((TEq (b, (Func u v) )):rest)
+  | a == b = Just ((splitTypeFunctions (Func n m) (Func u v) ) ++ rest)
+  | otherwise = Nothing
+splitFunctions' t1 (t2:rest) = case splitFunctions' t1 rest of
+  (Just new_list) -> Just ([t2] ++ new_list)
+  Nothing -> Nothing
+
+splitTypeFunctions :: (Types v) -> (Types v) -> [TypeEq v]
+splitTypeFunctions (Func a b) (Func c d) =
+  (splitTypeFunctions a c) ++ (splitTypeFunctions b d)
+splitTypeFunctions v t = [TEq (v,t)]
 
 
-
+-- Substitution Section
+-- For ubstituting complex equations
+--    X = Y -> Z
+--    Z = Q -> N
+-- => X = Y -> (Q -> N)
 
 substitution :: TypeEq String -> [TypeEq String] -> Maybe (TypeEq String)
 substitution main [] = Nothing
@@ -349,23 +394,3 @@ functionTypeAgree (Func f t) (Func g r) =
 functionTypeAgree (Func f t) n = False
 functionTypeAgree n (Func f t) = False
 functionTypeAgree _ _ = True
-
-
-splitFunctions :: [TypeEq v] -> [TypeEq v]
-splitFunctions [] = []
-splitFunctions (eq:eqs) = case splitFunctions' eq eqs of
-  (Just new_list) -> splitFunctions new_list
-  (Nothing) -> [eq] ++ (splitFunctions eqs)
-
-splitFunctions' _ [] = Nothing -- No changes
-splitFunctions' (TEq (a, (Func n m) )) ((TEq (b, (Func u v) )):rest)
-  | a == b = Just ((splitTypeFunctions (Func n m) (Func u v) ) ++ rest)
-  | otherwise = Nothing
-splitFunctions' t1 (t2:rest) = case splitFunctions' t1 rest of
-  (Just new_list) -> Just ([t2] ++ new_list)
-  Nothing -> Nothing
-
-splitTypeFunctions :: (Types v) -> (Types v) -> [TypeEq v]
-splitTypeFunctions (Func a b) (Func c d) =
-  (splitTypeFunctions a c) ++ (splitTypeFunctions b d)
-splitTypeFunctions v t = [TEq (v,t)]
