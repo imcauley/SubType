@@ -34,6 +34,7 @@ data Lam =
   | Pair (Lam) (Lam)
   | PairCase (Lam) (Lam) (Lam)
 
+  | NatCase (Lam) (Lam) (Lam)
   | Zero
   | Succ
 
@@ -49,9 +50,9 @@ test2 = ((Abst) "x" ((Abst) "y" (App (Var "x") (Var "y"))))
 
 getTypeForProgram l = case evalState (makeTypeEquations l 0) startState of
   (Left e) -> case (solveEqs (flattenEquations e)) of
-    (Left err) ->  putStrLn $ "Error :" ++ err
+    (Left err) ->  putStrLn $ "Error: " ++ err
     (Right solved) -> printTypeEq solved
-  (Right err) -> putStrLn $ "Error :" ++ err
+  (Right err) -> putStrLn $ "Error: " ++ err
 
 
 ----------------------------------
@@ -77,7 +78,7 @@ type EqState v = (  ([(Lam, Types v)]), Int )
 startState = ([], 0)
 lambdaTypeEquations l = case evalState (makeTypeEquations l 0) startState of
   (Left e) -> printTypeEq e
-  (Right err) -> putStrLn $ "Error :" ++ err
+  (Right err) -> putStrLn $ "Error: " ++ err
 
 typeEquations l = evalState (makeTypeEquations l 0) startState
 
@@ -168,35 +169,26 @@ makeTypeEquations (PairCase t (Pair x y) s) q = do
   case (e1, e2) of
     (Left e1', Left e2') -> return $ Left $ Exists [(show b), (show (b+1)), (show a)] [(TEq (TVar (show q), (TTuple (TVar (show b)) (TVar (show (b+1))) ))), e1', e2']
 
-
-
-replace_test = [TEq (TVar "1",TVar "2"),TEq (TVar "0",Func (TVar "1") (TVar "2"))]
-replace_test0 = [TEq (TVar "1",TVar "1"), TEq (TVar "2",TVar "1"), TEq (TVar "1",TVar "2"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
-replace_test1 = [TEq (TVar "1",TVar "0"), TEq (TVar "0",Func (TVar "1") (TVar "2"))]
-
-m1 =  [(TEq (TVar "0",Func (TVar "1") (Func (TVar "7") (TVar "5")))),
-      TEq (TVar "2",Func (TVar "4") (TVar "5")),
-      TEq (TVar "8",Func (TVar "7") (TVar "5")),
-      TEq (TVar "7",TVar "1"),
-      TEq (TVar "8",TVar "4")]
-
-
 ----------------------------------
 -- Equation Solving Section
 ----------------------------------
 
+solveEqs eqs =
+  case eqChecks eqs of
+    (Left err) -> Left err
+    (Right eqs') -> 
+      let (main,subs) = getMainAndSubs eqs' in
+      case substitution main subs of
+      Just (main') -> solveEqs (main':subs)
+      Nothing -> Right main
 
 getMainAndSubs eqs = ((getMainFunc eqs'), (notMain eqs'))
   where eqs' = removeTrivial (splitFunctions (removeTrivial eqs))
 
-solveEqs eqs
+eqChecks eqs
   | occurence (eqs) =  Left "Failed occurence check"
   | (not $ functionsAgree (eqs)) = Left "Functions don't agree"
-  | otherwise = case substitution main subs of
-      Just (main') -> solveEqs (main':subs)
-      Nothing -> Right main
-  where (main,subs) = getMainAndSubs eqs
-
+  | otherwise = Right eqs
 
 getMainFunc ((TEq (TVar "0", x)):_) = (TEq (TVar "0", x))
 getMainFunc (_:rest) = getMainFunc rest
@@ -205,7 +197,6 @@ notMain [] = []
 notMain ((TEq (TVar "0", x)):rest) = notMain rest
 notMain (x:rest) = [x] ++ (notMain rest)
 
-allPairs eqs = [(e, delete e eqs) | e <- eqs]
 
 removeTrivial :: [TypeEq String] -> [TypeEq String]
 removeTrivial eqs = removeTrivial' eqs (findTrivial eqs)
@@ -319,22 +310,3 @@ splitTypeFunctions :: (Types v) -> (Types v) -> [TypeEq v]
 splitTypeFunctions (Func a b) (Func c d) =
   (splitTypeFunctions a c) ++ (splitTypeFunctions b d)
 splitTypeFunctions v t = [TEq (v,t)]
-
-
--- [TEq (TVar "0",Func (TVar "1") (TVar "2")), TEq (TVar "2",Func (TVar "4") (TVar "5")), TEq (TVar "7",Func (TVar "8") (TVar "5")), TEq (TVar "7",TVar "1"), TEq (TVar "8",TVar "4")]
-
--- [TEq (TVar "0",Func (TVar "1") (TVar "2")), 
--- TEq (TVar "2",Func (TVar "4") (TVar "5")), 
--- TEq (TVar "7",Func (TVar "8") (TVar "5")), 
--- TEq (TVar "7",TVar "1"), 
--- TEq (TVar "8",TVar "4")]
-
--- -- [TEq (TVar "0",Func (TVar "1") (TVar "2")),
--- -- TEq (TVar "2",Func (TVar "4") (TVar "5")),
--- -- TEq (TVar "7",Func (TVar "4") (TVar "5"))]
-
--- [TEq (TVar "0",Func (TVar "1") (TVar "2")),
--- TEq (TVar "2",Func (TVar "4") (TVar "5")),
--- TEq (TVar "7",Func (TVar "4") (TVar "5"))]
-
--- removeTriv [TEq (TVar "7",Func (TVar "4") (TVar "5"))] (TEq (TVar "7",TVar "1"))
