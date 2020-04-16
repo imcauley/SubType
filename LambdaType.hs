@@ -72,13 +72,14 @@ printTypeEq t = putStrLn (stringTypeEq t)
 -- Equation Creation Section
 ----------------------------------
 
-type EqState v = (  ([(Lam, Types v)]), Int )
+type EqState v = (  ([(Lam, Types v)]), Int ) 
 
 startState = ([], 0)
 lambdaTypeEquations l = case evalState (makeTypeEquations l 0) startState of
   (Left e) -> printTypeEq e
   (Right err) -> putStrLn $ "Error :" ++ err
 
+typeEquations l = evalState (makeTypeEquations l 0) startState
 
 makeTypeEquations :: Lam -> Int -> State (EqState String) (Either (TypeEq String) String)
 makeTypeEquations (Var x) q = do
@@ -108,7 +109,7 @@ makeTypeEquations (App f t) q = do
   put (con', x')
   e2 <- makeTypeEquations t r
   case (e1, e2) of
-    (Left e1', Left e2') -> return $ Left $ Exists [(show l), (show r)] [(TEq (TVar (show r), (Func (TVar (show l)) (TVar (show q)) ))), e1', e2']
+    (Left e1', Left e2') -> return $ Left $ Exists [(show l), (show r)] [(TEq (TVar (show l), (Func (TVar (show r)) (TVar (show q)) ))), e1', e2']
     (Right e1', Left e2') -> return $ Right $ "Error in left hand side: " ++ e1'
     (Left e1', Right e2') -> return $ Right $ "Error in right hand side: " ++ e2'
 
@@ -215,10 +216,14 @@ removeTrivial' eqs (t:ts) = removeTrivial' (removeTriv eqs t) ts
 removeTriv [] _ = []
 removeTriv (eq:rest) t
   | eq == t = removeTriv rest t
-  | otherwise = case substitution eq [t] of
-    (Just eq') -> [eq'] ++ (removeTriv rest t)
-    Nothing -> [eq] ++ (removeTriv rest t)
+  | otherwise = [(TEq ((newName x v r), (replaceInType y v r)))] ++ (removeTriv rest t)
+    where (TEq (TVar v, r)) = t
+          (TEq (x,y)) = eq
 
+newName (TVar x) v (TVar r)
+  | x == v = (TVar r)
+  | otherwise = (TVar x)
+newName x _ _ = x
 
 findTrivial [] = []
 findTrivial ((TEq (TVar a, (TVar b))):rest) = (TEq (TVar a, (TVar b))):(findTrivial rest)
@@ -244,7 +249,7 @@ substitution (TEq (m,t)) (s:subs) = case varToSub (TEq (m,t)) s of
 varToSub :: TypeEq String -> TypeEq String -> Maybe (String, (Types String))
 varToSub (TEq (_, t)) (TEq (TVar a, (TVar b))) 
   | elem a (getVariablesInTypes t) = Just (a,(TVar b))
-  | elem b (getVariablesInTypes t) = Just (b,(TVar a))
+  -- | elem b (getVariablesInTypes t) = Just (b,(TVar a))
   | otherwise = Nothing
 varToSub (TEq (_, t)) (TEq (TVar a, t1)) 
   | elem a (getVariablesInTypes t) = Just (a,t1)
@@ -284,9 +289,10 @@ functionsAgree :: [TypeEq v] -> Bool
 functionsAgree [] = True
 functionsAgree (eq:eqs) = and (map (functionsAgree' eq) eqs) && (functionsAgree eqs)
 
-functionsAgree' (TEq ((TVar a), f)) (TEq ((TVar b), g))
-  | a == b = functionTypeAgree f g
+functionsAgree' (TEq ((TVar a), (Func f t))) (TEq ((TVar b), (Func g r)))
+  | a == b = functionTypeAgree (Func f t) (Func g r)
   | otherwise = True
+functionsAgree' _ _ = True
 
 functionTypeAgree (Func f t) (Func g r) =
    (functionTypeAgree f g) && (functionTypeAgree t r)
@@ -313,3 +319,22 @@ splitTypeFunctions :: (Types v) -> (Types v) -> [TypeEq v]
 splitTypeFunctions (Func a b) (Func c d) =
   (splitTypeFunctions a c) ++ (splitTypeFunctions b d)
 splitTypeFunctions v t = [TEq (v,t)]
+
+
+-- [TEq (TVar "0",Func (TVar "1") (TVar "2")), TEq (TVar "2",Func (TVar "4") (TVar "5")), TEq (TVar "7",Func (TVar "8") (TVar "5")), TEq (TVar "7",TVar "1"), TEq (TVar "8",TVar "4")]
+
+-- [TEq (TVar "0",Func (TVar "1") (TVar "2")), 
+-- TEq (TVar "2",Func (TVar "4") (TVar "5")), 
+-- TEq (TVar "7",Func (TVar "8") (TVar "5")), 
+-- TEq (TVar "7",TVar "1"), 
+-- TEq (TVar "8",TVar "4")]
+
+-- -- [TEq (TVar "0",Func (TVar "1") (TVar "2")),
+-- -- TEq (TVar "2",Func (TVar "4") (TVar "5")),
+-- -- TEq (TVar "7",Func (TVar "4") (TVar "5"))]
+
+-- [TEq (TVar "0",Func (TVar "1") (TVar "2")),
+-- TEq (TVar "2",Func (TVar "4") (TVar "5")),
+-- TEq (TVar "7",Func (TVar "4") (TVar "5"))]
+
+-- removeTriv [TEq (TVar "7",Func (TVar "4") (TVar "5"))] (TEq (TVar "7",TVar "1"))
