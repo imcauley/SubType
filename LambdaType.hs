@@ -28,15 +28,19 @@ data Lam =
   | Var String
   | Fix (Lam)
 
+  | NatCase (Lam) (Lam) (Lam) (Lam)
+  | Zero
+  | Succ
+  
   | Unit
   | UnitCase (Lam) (Lam) (Lam)
 
   | Pair (Lam) (Lam)
   | PairCase (Lam) (Lam) (Lam)
 
-  | NatCase (Lam) (Lam) (Lam) (Lam)
-  | Zero
-  | Succ
+  | Nil 
+  | Cons
+  | ListCase (Lam) (Lam) (Lam) (Lam)
 
   deriving (Eq, Show)
 
@@ -169,10 +173,6 @@ makeTypeEquations (PairCase t (Pair x y) s) q = do
   case (e1, e2) of
     (Left e1', Left e2') -> return $ Left $ Exists [(show b), (show (b+1)), (show a)] [(TEq (TVar (show q), (TTuple (TVar (show b)) (TVar (show (b+1))) ))), e1', e2']
 
--- makeTypeEquations (NatCase t t0 t1) q = do
---   (con, a) <- get
---   put (con, a+1)
-
 makeTypeEquations (NatCase t (App Succ n) t0 t1) q = do
   (con, x1) <- get
   put (con, x1+1)
@@ -192,6 +192,42 @@ makeTypeEquations (NatCase t (App Succ n) t0 t1) q = do
       [(TEq (TVar (show x1), TVar "Nat")), (TEq (TVar (show (y2+1)), TVar "Nat")), 
       (TEq (TVar (show (y1)), TVar (show q))), (TEq (TVar (show (y2)), TVar (show q))), 
       e1', e2', e3']
+
+makeTypeEquations (Nil) q = do
+  (con, x1) <- get
+  put (con, x1+1)
+  
+  return $ Left $ Exists [(show x1)] [(TEq (TVar (show q), TList (TVar (show x1))))]
+
+makeTypeEquations (Cons) q = do
+  (con, x1) <- get
+  put (con, x1+1)
+
+  return $ Left $ Exists [(show x1)] 
+    [(TEq (TVar (show q), Func (TTuple (TVar (show x1)) (TList (TVar (show x1))) ) (TList (TVar (show x1))) )) ]
+
+makeTypeEquations (ListCase t (App Cons v) t0 t1) q = do
+  (con, x1) <- get
+  put (con, x1+1)
+  e1 <- makeTypeEquations t x1
+
+  (con', y1) <- get
+  put (con', y1+1)
+  e2 <- makeTypeEquations t0 y1
+
+  (ctx, y2) <- get
+  put (((v,(TVar (show (y2+1)))):ctx), y2+3)
+  e3 <- makeTypeEquations t x1
+
+  let x = y2 + 2 in
+    case (e1, e2, e3) of
+      (Left e1', Left e2', Left e3') ->
+        return $ Left $ Exists [(show x1), (show y1), (show y2), (show (y2+1)), (show x)] 
+        [(TEq ((TVar (show x1)), TList (TVar (show x)))),
+        (TEq (TVar (show (y2+1)), TTuple (TVar (show x)) (TList (TVar (show x))) )),
+        (TEq (TVar (show q), TVar (show y1))),
+        (TEq (TVar (show q), TVar (show y2))),
+        e1', e2', e3']
 ----------------------------------
 -- Equation Solving Section
 ----------------------------------
